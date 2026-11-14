@@ -34,8 +34,9 @@ def get_db_config() -> dict[str, Any]:
 
 @st.cache_resource
 def get_connection():
-    db_type = os.getenv("DB_TYPE", "mysql")
-    if db_type.lower() == "sqlite":
+    db_type = (os.getenv("DB_TYPE") or "sqlite").strip().lower()
+
+    if db_type == "sqlite":
         conn = __import__("sqlite3").connect(DB_FILE, check_same_thread=False)
         conn.row_factory = __import__("sqlite3").Row
         return conn
@@ -80,35 +81,19 @@ def init_db() -> None:
 
 def ensure_demo_data() -> None:
     conn = get_connection()
-    if is_sqlite_connection(conn):
-        tables = [
-            row[0]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('customers','products','orders','order_items','payments')"
-            ).fetchall()
-        ]
-        if len(tables) == 5 and all(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] > 0 for table in tables):
-            return
-    else:
-        try:
-            cur = conn.cursor(dictionary=True)
-            cur.execute("SHOW TABLES")
-            tables = {row[f"Tables_in_{get_db_config()['database']}"] for row in cur.fetchall()}
-            if {"customers", "products", "orders", "order_items", "payments"}.issubset(tables):
-                counts = []
-                for table in ["customers", "products", "orders", "order_items", "payments"]:
-                    cur.execute(f"SELECT COUNT(*) AS c FROM {table}")
-                    counts.append(cur.fetchone()["c"])
-                if all(count > 0 for count in counts):
-                    return
-        except Exception:
-            pass
-
     customers = [
         ("Alice Johnson", "alice@example.com", "555-0101", "123 Main St"),
         ("Brian Smith", "brian@example.com", "555-0102", "456 Oak Ave"),
         ("Carla Gomez", "carla@example.com", "555-0103", "789 Pine Rd"),
         ("David Lee", "david@example.com", "555-0104", "321 Birch Ln"),
+        ("Emma Wilson", "emma@example.com", "555-0105", "18 Lake View Rd"),
+        ("Farhan Khan", "farhan@example.com", "555-0106", "44 Green Park"),
+        ("Grace Chen", "grace@example.com", "555-0107", "72 Hill Street"),
+        ("Harish Patel", "harish@example.com", "555-0108", "9 Market Road"),
+        ("Isha Sharma", "isha@example.com", "555-0109", "56 River Lane"),
+        ("Jack Turner", "jack@example.com", "555-0110", "31 Sunrise Avenue"),
+        ("Kavya Rao", "kavya@example.com", "555-0111", "20 Garden Street"),
+        ("Leo Martin", "leo@example.com", "555-0112", "85 Central Avenue"),
     ]
     products = [
         ("Laptop Pro 14", "Electronics", 1200.00, 25),
@@ -117,22 +102,32 @@ def ensure_demo_data() -> None:
         ("Mechanical Keyboard", "Accessories", 110.00, 60),
         ("USB-C Hub", "Accessories", 45.00, 120),
         ("Office Chair", "Furniture", 220.00, 20),
+        ("Noise-Cancelling Headphones", "Audio", 180.00, 35),
+        ("Webcam HD", "Electronics", 75.00, 50),
+        ("Bluetooth Speaker", "Audio", 95.00, 40),
+        ("Desk Lamp", "Furniture", 38.00, 65),
+        ("Laptop Stand", "Accessories", 42.00, 55),
+        ("Portable SSD 1TB", "Storage", 130.00, 28),
+        ("Wi-Fi Router", "Networking", 89.00, 32),
+        ("Smartphone 128GB", "Electronics", 699.00, 4),
     ]
 
     if is_sqlite_connection(conn):
         cur = conn.cursor()
-        existing_customers = cur.execute("SELECT COUNT(*) FROM customers").fetchone()[0]
-        existing_products = cur.execute("SELECT COUNT(*) FROM products").fetchone()[0]
-        if existing_customers == 0:
-            cur.executemany(
-                "INSERT INTO customers (name, email, phone, address) VALUES (?, ?, ?, ?)",
-                customers,
-            )
-        if existing_products == 0:
-            cur.executemany(
-                "INSERT INTO products (name, category, price, stock_quantity) VALUES (?, ?, ?, ?)",
-                products,
-            )
+        for customer in customers:
+            cur.execute("SELECT 1 FROM customers WHERE email = ?", (customer[1],))
+            if cur.fetchone() is None:
+                cur.execute(
+                    "INSERT INTO customers (name, email, phone, address) VALUES (?, ?, ?, ?)",
+                    customer,
+                )
+        for product in products:
+            cur.execute("SELECT 1 FROM products WHERE name = ?", (product[0],))
+            if cur.fetchone() is None:
+                cur.execute(
+                    "INSERT INTO products (name, category, price, stock_quantity) VALUES (?, ?, ?, ?)",
+                    product,
+                )
         if cur.execute("SELECT COUNT(*) FROM orders").fetchone()[0] == 0:
             order_rows = [
                 (1, "2025-01-12 10:00:00", "Completed", 1175.00, "First order"),
@@ -174,19 +169,22 @@ def ensure_demo_data() -> None:
         return
 
     cur = conn.cursor(dictionary=True)
-    if cur.execute("SELECT COUNT(*) AS c FROM customers").fetchone()["c"] == 0:
-        for row in customers:
+    for customer in customers:
+        cur.execute("SELECT 1 FROM customers WHERE email = %s", (customer[1],))
+        if cur.fetchone() is None:
             cur.execute(
                 "INSERT INTO customers (name, email, phone, address) VALUES (%s, %s, %s, %s)",
-                row,
+                customer,
             )
-    if cur.execute("SELECT COUNT(*) AS c FROM products").fetchone()["c"] == 0:
-        for row in products:
+    for product in products:
+        cur.execute("SELECT 1 FROM products WHERE name = %s", (product[0],))
+        if cur.fetchone() is None:
             cur.execute(
                 "INSERT INTO products (name, category, price, stock_quantity) VALUES (%s, %s, %s, %s)",
-                row,
+                product,
             )
-    if cur.execute("SELECT COUNT(*) AS c FROM orders").fetchone()["c"] == 0:
+    cur.execute("SELECT COUNT(*) AS c FROM orders")
+    if cur.fetchone()["c"] == 0:
         for customer_id, order_date, status, total_amount, notes in [
             (1, "2025-01-12 10:00:00", "Completed", 1175.00, "First order"),
             (2, "2025-02-18 12:30:00", "Completed", 610.00, "Bulk purchase"),
@@ -274,41 +272,90 @@ def add_order(customer_id: int, status: str, notes: str, items: Iterable[tuple[i
     for product_id, quantity in items:
         product = product_lookup.get(int(product_id), {})
         if not product:
-            continue
+            raise ValueError(f"Product {product_id} was not found.")
+        if int(quantity) <= 0:
+            raise ValueError("Order quantities must be greater than zero.")
+        if int(quantity) > int(product["stock_quantity"]):
+            raise ValueError(f"Not enough stock for {product['name']}.")
         unit_price = float(product.get("price", 0.0))
         subtotal = unit_price * int(quantity)
         total_amount += subtotal
-        prepared_items.append((product_id, quantity, unit_price, subtotal))
+        prepared_items.append((int(product_id), int(quantity), unit_price, subtotal))
 
     if not prepared_items:
-        return
+        raise ValueError("Choose at least one product quantity.")
 
     if is_sqlite_connection(conn):
         cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO orders (customer_id, order_date, status, total_amount, notes) VALUES (?, ?, ?, ?, ?)",
-            (int(customer_id), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), status, round(total_amount, 2), notes),
-        )
-        order_id = cur.lastrowid
-        for product_id, quantity, unit_price, subtotal in prepared_items:
+        try:
             cur.execute(
-                "INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal) VALUES (?, ?, ?, ?, ?)",
-                (order_id, int(product_id), quantity, unit_price, subtotal),
+                "INSERT INTO orders (customer_id, order_date, status, total_amount, notes) VALUES (?, ?, ?, ?, ?)",
+                (int(customer_id), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), status, round(total_amount, 2), notes),
             )
-        conn.commit()
+            order_id = cur.lastrowid
+            for product_id, quantity, unit_price, subtotal in prepared_items:
+                cur.execute(
+                    "UPDATE products SET stock_quantity = stock_quantity - ? WHERE product_id = ? AND stock_quantity >= ?",
+                    (quantity, product_id, quantity),
+                )
+                if cur.rowcount != 1:
+                    raise ValueError("Stock changed while creating the order. Refresh and try again.")
+                cur.execute(
+                    "INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal) VALUES (?, ?, ?, ?, ?)",
+                    (order_id, product_id, quantity, unit_price, subtotal),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
     else:
-        cur = conn.cursor(dictionary=True)
-        cur.execute(
-            "INSERT INTO orders (customer_id, order_date, status, total_amount, notes) VALUES (%s, %s, %s, %s, %s)",
-            (int(customer_id), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), status, round(total_amount, 2), notes),
-        )
-        order_id = cur.lastrowid
-        for product_id, quantity, unit_price, subtotal in prepared_items:
+        conn.start_transaction()
+        cur = conn.cursor()
+        try:
             cur.execute(
-                "INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal) VALUES (%s, %s, %s, %s, %s)",
-                (order_id, int(product_id), quantity, unit_price, subtotal),
+                "INSERT INTO orders (customer_id, order_date, status, total_amount, notes) VALUES (%s, %s, %s, %s, %s)",
+                (int(customer_id), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), status, round(total_amount, 2), notes),
             )
-        conn.commit()
+            order_id = cur.lastrowid
+            for product_id, quantity, unit_price, subtotal in prepared_items:
+                cur.execute(
+                    "UPDATE products SET stock_quantity = stock_quantity - %s WHERE product_id = %s AND stock_quantity >= %s",
+                    (quantity, product_id, quantity),
+                )
+                if cur.rowcount != 1:
+                    raise ValueError("Stock changed while creating the order. Refresh and try again.")
+                cur.execute(
+                    "INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal) VALUES (%s, %s, %s, %s, %s)",
+                    (order_id, product_id, quantity, unit_price, subtotal),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def update_order_status(order_id: int, status: str) -> None:
+    conn = get_connection()
+    if is_sqlite_connection(conn):
+        conn.execute("UPDATE orders SET status = ? WHERE order_id = ?", (status, order_id))
+    else:
+        conn.cursor().execute("UPDATE orders SET status = %s WHERE order_id = %s", (status, order_id))
+    conn.commit()
+
+
+def update_product_stock(product_id: int, stock_quantity: int) -> None:
+    conn = get_connection()
+    if is_sqlite_connection(conn):
+        conn.execute(
+            "UPDATE products SET stock_quantity = ? WHERE product_id = ?",
+            (stock_quantity, product_id),
+        )
+    else:
+        conn.cursor().execute(
+            "UPDATE products SET stock_quantity = %s WHERE product_id = %s",
+            (stock_quantity, product_id),
+        )
+    conn.commit()
 
 
 def delete_record(table_name: str, key_name: str, record_id: int) -> None:
@@ -336,7 +383,7 @@ st.title("Sales Analytics & Management System")
 
 with st.sidebar:
     st.markdown("### Navigation")
-    page = st.radio("Go to", ["Dashboard", "Customers", "Products", "Orders", "Reports", "Export"])
+    page = st.radio("Go to", ["Dashboard", "Customers", "Products", "Inventory", "Orders", "Reports", "Export"])
 
 if page == "Dashboard":
     orders = fetch_table("orders")
@@ -349,12 +396,18 @@ if page == "Dashboard":
     revenue = float(payments["amount_paid"].sum()) if not payments.empty else 0.0
     total_customers = int(customers["customer_id"].nunique()) if not customers.empty else 0
     total_products = int(products["product_id"].nunique()) if not products.empty else 0
+    pending_orders = int(orders["status"].isin(["Pending"]).sum()) if not orders.empty else 0
+    low_stock_count = int((products["stock_quantity"] <= 5).sum()) if not products.empty else 0
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     col1.metric("Total Sales", f"₹{total_sales:,.0f}")
     col2.metric("Revenue", f"₹{revenue:,.0f}")
     col3.metric("Customers", total_customers)
     col4.metric("Products", total_products)
+    col5.metric("Pending Orders", pending_orders)
+    col6.metric("Low Stock Items", low_stock_count)
+    if low_stock_count:
+        st.warning(f"{low_stock_count} product(s) have 5 or fewer units in stock. Review the Inventory page.")
 
     if not order_items.empty and not products.empty:
         order_items_with_names = order_items.merge(products[["product_id", "name"]], on="product_id", how="left")
@@ -374,21 +427,21 @@ if page == "Dashboard":
         st.subheader("Sales Trend")
         if not monthly_sales.empty:
             fig_line = px.line(monthly_sales, x="month", y="total_amount", markers=True)
-            st.plotly_chart(fig_line, use_container_width=True)
+            st.plotly_chart(fig_line, width="stretch")
         else:
             st.info("No sales data available.")
     with right_col:
         st.subheader("Top Products")
         if not product_sales.empty:
             fig_bar = px.bar(product_sales.head(5), x="name", y="subtotal", color="subtotal")
-            st.plotly_chart(fig_bar, use_container_width=True)
+            st.plotly_chart(fig_bar, width="stretch")
         else:
             st.info("No product sales data available.")
 
     st.subheader("Revenue by Product")
     if not product_sales.empty:
         fig_pie = px.pie(product_sales, values="subtotal", names="name", hole=0.45)
-        st.plotly_chart(fig_pie, use_container_width=True)
+        st.plotly_chart(fig_pie, width="stretch")
     else:
         st.info("No product sales data available yet.")
 
@@ -407,8 +460,15 @@ elif page == "Customers":
 
     customer_df = fetch_table("customers")
     if not customer_df.empty:
-        st.dataframe(customer_df, use_container_width=True)
-        selected_customer = st.selectbox("Delete customer", customer_df["customer_id"].tolist())
+        query = st.text_input("Search customers by name, email, or phone")
+        if query:
+            searchable = customer_df[["name", "email", "phone"]].fillna("").astype(str).agg(" ".join, axis=1)
+            customer_df = customer_df[searchable.str.contains(query, case=False, regex=False)]
+        st.caption(f"{len(customer_df)} customer(s) shown")
+        st.dataframe(customer_df, width="stretch")
+    all_customers = fetch_table("customers")
+    if not all_customers.empty:
+        selected_customer = st.selectbox("Delete customer", all_customers["customer_id"].tolist())
         if st.button("Delete Selected Customer"):
             delete_record("customers", "customer_id", int(selected_customer))
             st.success("Customer deleted.")
@@ -431,7 +491,13 @@ elif page == "Products":
 
     product_df = fetch_table("products")
     if not product_df.empty:
-        st.dataframe(product_df, use_container_width=True)
+        categories = ["All"] + sorted(product_df["category"].dropna().unique().tolist())
+        category = st.selectbox("Filter by category", categories)
+        if category != "All":
+            product_df = product_df[product_df["category"] == category]
+        st.dataframe(product_df, width="stretch")
+        st.caption(f"{len(product_df)} product(s) shown")
+        product_df = fetch_table("products")
         selected_product = st.selectbox("Delete product", product_df["product_id"].tolist())
         if st.button("Delete Selected Product"):
             delete_record("products", "product_id", int(selected_product))
@@ -439,6 +505,33 @@ elif page == "Products":
             st.rerun()
     else:
         st.info("No products found.")
+
+elif page == "Inventory":
+    st.subheader("Inventory Management")
+    product_df = fetch_table("products")
+    if product_df.empty:
+        st.info("Add products to start managing inventory.")
+    else:
+        threshold = st.number_input("Low-stock threshold", min_value=0, value=5, step=1)
+        low_stock = product_df[product_df["stock_quantity"] <= threshold]
+        if low_stock.empty:
+            st.success("No products are below the selected stock threshold.")
+        else:
+            st.warning(f"{len(low_stock)} product(s) are at or below {threshold} units.")
+            st.dataframe(low_stock[["product_id", "name", "category", "stock_quantity"]], width="stretch")
+
+        with st.form("adjust_inventory_form"):
+            product_id = st.selectbox(
+                "Product",
+                product_df["product_id"].tolist(),
+                format_func=lambda pid: product_df.loc[product_df["product_id"] == pid, "name"].iat[0],
+            )
+            current_stock = int(product_df.loc[product_df["product_id"] == product_id, "stock_quantity"].iat[0])
+            new_stock = st.number_input("Set available quantity", min_value=0, value=current_stock, step=1)
+            if st.form_submit_button("Update Stock"):
+                update_product_stock(int(product_id), int(new_stock))
+                st.success("Stock updated.")
+                st.rerun()
 
 elif page == "Orders":
     st.subheader("Order Management")
@@ -458,20 +551,35 @@ elif page == "Orders":
             notes = st.text_area("Notes")
             selected_items: list[tuple[int, int]] = []
             for _, product in product_df.iterrows():
-                qty = st.number_input(f"{product['name']} qty", min_value=0, step=1, key=f"qty_{product['product_id']}")
+                qty = st.number_input(
+                    f"{product['name']} — ₹{float(product['price']):,.2f} ({int(product['stock_quantity'])} in stock)",
+                    min_value=0,
+                    max_value=int(product["stock_quantity"]),
+                    step=1,
+                    key=f"qty_{product['product_id']}",
+                )
                 if qty > 0:
                     selected_items.append((int(product["product_id"]), int(qty)))
             if st.form_submit_button("Create Order"):
-                if selected_items:
+                try:
                     add_order(int(customer_id), status, notes, selected_items)
                     st.success("Order created successfully.")
                     st.rerun()
-                else:
-                    st.warning("Choose at least one product quantity.")
+                except ValueError as exc:
+                    st.error(str(exc))
 
     orders_df = fetch_table("orders")
     if not orders_df.empty:
-        st.dataframe(orders_df, use_container_width=True)
+        statuses = ["All"] + sorted(orders_df["status"].dropna().unique().tolist())
+        order_status = st.selectbox("Filter orders by status", statuses)
+        visible_orders = orders_df if order_status == "All" else orders_df[orders_df["status"] == order_status]
+        st.dataframe(visible_orders, width="stretch")
+        order_id = st.selectbox("Update order status", orders_df["order_id"].tolist())
+        new_status = st.selectbox("New status", ["Pending", "Paid", "Completed", "Cancelled"])
+        if st.button("Save Order Status"):
+            update_order_status(int(order_id), new_status)
+            st.success("Order status updated.")
+            st.rerun()
     else:
         st.info("No orders yet.")
 
@@ -491,11 +599,11 @@ elif page == "Reports":
         best_products = order_items.merge(products[["product_id", "name"]], on="product_id")
         best_products = best_products.groupby("name", as_index=False)["subtotal"].sum().sort_values("subtotal", ascending=False)
         st.subheader("Best-selling products")
-        st.dataframe(best_products, use_container_width=True)
+        st.dataframe(best_products, width="stretch")
 
         top_customers = orders.merge(customers[["customer_id", "name"]], on="customer_id").groupby("name", as_index=False)["total_amount"].sum().sort_values("total_amount", ascending=False)
         st.subheader("Top customers")
-        st.dataframe(top_customers, use_container_width=True)
+        st.dataframe(top_customers, width="stretch")
 
         revenue_profit = pd.DataFrame(
             {

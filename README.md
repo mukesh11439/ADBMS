@@ -4,16 +4,13 @@ A Python + MySQL + Streamlit project for managing customers, products, orders, a
 
 ## Features
 
-- Admin dashboard with KPI cards
-- Customer management
-- Product management
-- Order management
-- Automatic sales calculation
-- Monthly and yearly sales reports
-- Best-selling products and top customers
-- Revenue and profit analysis
-- Interactive charts and filters
-- CSV export / database backup
+- KPI dashboard with sales, revenue, pending-order, and low-stock metrics
+- Customer and product management with search/category filters
+- Order creation with automatic totals and stock deduction
+- Inventory monitoring, low-stock alerts, and stock adjustment
+- Order status management and filtering
+- Monthly sales, best-selling products, and top-customer reports
+- Interactive charts and downloadable CSV exports
 
 ## Stack
 
@@ -34,8 +31,9 @@ A Python + MySQL + Streamlit project for managing customers, products, orders, a
    ```bash
    pip install -r requirements.txt
    ```
-3. Configure MySQL in environment variables or `.env`:
+3. By default, the app uses SQLite for local demo/testing. If you want MySQL instead, set these environment variables or add a `.env` file:
    ```env
+   DB_TYPE=mysql
    DB_HOST=localhost
    DB_PORT=3306
    DB_USER=root
@@ -47,7 +45,7 @@ A Python + MySQL + Streamlit project for managing customers, products, orders, a
    streamlit run app.py
    ```
 
-If MySQL is not available, the app automatically falls back to a local SQLite database for demonstration and testing.
+If MySQL is not configured or is unavailable, the app automatically falls back to the local SQLite database file `sales_demo.db`.
 
 ## Database design
 
@@ -61,4 +59,6 @@ The schema includes the following tables:
 
 ## Sample data
 
-The app seeds the database automatically with a small demo dataset when tables are empty.
+The app adds a repeat-safe demo catalog of 12 customers and 14 products, plus starter orders and payments when the database is empty. Existing customers and products are preserved; missing demo entries are added once. The sample data is synthetic and can be removed from the Customers and Products pages.
+
+The SQLite database and generated CSV exports are local runtime files and are intentionally excluded from Git. A fresh clone creates the database and demo data automatically on first run.
