@@ -518,19 +518,46 @@ elif page == "Inventory":
             st.success("No products are below the selected stock threshold.")
         else:
             st.warning(f"{len(low_stock)} product(s) are at or below {threshold} units.")
-            st.dataframe(low_stock[["product_id", "name", "category", "stock_quantity"]], width="stretch")
 
-        with st.form("adjust_inventory_form"):
-            product_id = st.selectbox(
-                "Product",
-                product_df["product_id"].tolist(),
-                format_func=lambda pid: product_df.loc[product_df["product_id"] == pid, "name"].iat[0],
+        show_low_stock_only = st.checkbox("Show only low-stock products", value=False)
+        inventory_view = low_stock if show_low_stock_only else product_df
+        st.caption("Edit the Available Stock cells, then select Save Inventory Changes.")
+        with st.form("inventory_editor_form"):
+            edited_inventory = st.data_editor(
+                inventory_view[["product_id", "name", "category", "price", "stock_quantity"]],
+                column_config={
+                    "product_id": st.column_config.NumberColumn("ID", disabled=True),
+                    "name": st.column_config.TextColumn("Product", disabled=True),
+                    "category": st.column_config.TextColumn("Category", disabled=True),
+                    "price": st.column_config.NumberColumn("Price", format="₹%.2f", disabled=True),
+                    "stock_quantity": st.column_config.NumberColumn(
+                        "Available Stock",
+                        min_value=0,
+                        step=1,
+                    ),
+                },
+                disabled=["product_id", "name", "category", "price"],
+                hide_index=True,
+                width="stretch",
+                key="inventory_stock_editor",
             )
-            current_stock = int(product_df.loc[product_df["product_id"] == product_id, "stock_quantity"].iat[0])
-            new_stock = st.number_input("Set available quantity", min_value=0, value=current_stock, step=1)
-            if st.form_submit_button("Update Stock"):
-                update_product_stock(int(product_id), int(new_stock))
-                st.success("Stock updated.")
+            save_inventory = st.form_submit_button("Save Inventory Changes")
+
+        if save_inventory:
+            changed_stock = edited_inventory[["product_id", "stock_quantity"]].merge(
+                product_df[["product_id", "stock_quantity"]],
+                on="product_id",
+                suffixes=("_edited", "_current"),
+            )
+            changed_stock = changed_stock[
+                changed_stock["stock_quantity_edited"] != changed_stock["stock_quantity_current"]
+            ]
+            for row in changed_stock.itertuples(index=False):
+                update_product_stock(int(row.product_id), int(row.stock_quantity_edited))
+            if changed_stock.empty:
+                st.info("No stock values were changed.")
+            else:
+                st.success(f"Updated stock for {len(changed_stock)} product(s).")
                 st.rerun()
 
 elif page == "Orders":

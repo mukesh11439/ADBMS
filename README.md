@@ -7,7 +7,7 @@ A Python + MySQL + Streamlit project for managing customers, products, orders, a
 - KPI dashboard with sales, revenue, pending-order, and low-stock metrics
 - Customer and product management with search/category filters
 - Order creation with automatic totals and stock deduction
-- Inventory monitoring, low-stock alerts, and stock adjustment
+- Full inventory view with editable stock quantities and low-stock alerts
 - Order status management and filtering
 - Monthly sales, best-selling products, and top-customer reports
 - Interactive charts and downloadable CSV exports
